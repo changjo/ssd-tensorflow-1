@@ -4,3 +4,8 @@ tb-*
 *test*
 *.zip
 pascal-voc*
+tb*
+vgg_graph
+
+#pycharm
+.idea
