@@ -65,9 +65,13 @@ Label   = namedtuple('Label',   ['name', 'color'])
 Size    = namedtuple('Size',    ['w', 'h'])
 Point   = namedtuple('Point',   ['x', 'y'])
 Sample  = namedtuple('Sample',  ['filename', 'boxes', 'imgsize'])
-Box     = namedtuple('Box',     ['label', 'labelid', 'center', 'size'])
+#Box     = namedtuple('Box',     ['label', 'labelid', 'center', 'size', 'difficult'])
 Score   = namedtuple('Score',   ['idx', 'score'])
 Overlap = namedtuple('Overlap', ['best', 'good'])
+
+class Box(namedtuple('Box',     ['label', 'labelid', 'center', 'size', 'difficult'])):
+    def __new__(cls, label, labelid, center, size, difficult=None):
+        return super(Box, cls).__new__(cls, label, labelid, center, size, difficult)
 
 #-------------------------------------------------------------------------------
 def str2bool(v):
@@ -273,8 +277,11 @@ class LossSummary:
     def push(self, epoch):
         feed = {}
         for loss in self.loss_names:
-            feed[self.placeholders[loss]] = \
-                self.loss_values[loss]/self.num_samples
+            if self.num_samples == 0:
+                feed[self.placeholders[loss]] = 0
+            else:
+                feed[self.placeholders[loss]] = \
+                    self.loss_values[loss]/self.num_samples
 
         summary = self.session.run(self.summary_ops, feed_dict=feed)
         self.writer.add_summary(summary, epoch)

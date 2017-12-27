@@ -113,8 +113,9 @@ class PascalVOCSource:
                     xmax  = int(float(obj.xpath('bndbox/xmax')[0].text))
                     ymin  = int(float(obj.xpath('bndbox/ymin')[0].text))
                     ymax  = int(float(obj.xpath('bndbox/ymax')[0].text))
+                    diff  = int(obj.xpath('difficult')[0].text)
                     center, size = abs2prop(xmin, xmax, ymin, ymax, imgsize)
-                    box = Box(label, self.lname2id[label], center, size)
+                    box = Box(label, self.lname2id[label], center, size, diff)
                     boxes.append(box)
                 if not boxes:
                     continue
