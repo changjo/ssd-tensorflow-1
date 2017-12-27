@@ -88,6 +88,7 @@ class SSDVGG:
     #---------------------------------------------------------------------------
     def __init__(self, session, preset):
         self.preset = preset
+        self.num_ratios = [4, 6, 6, 6, 4, 4]
         self.session = session
         self.__built = False
         self.__build_names()
@@ -112,6 +113,8 @@ class SSDVGG:
         else: self.__build_vgg_mods()
         self.__build_ssd_layers()
         self.__build_norms()
+        print(self.vgg_conv4_3)
+        print(self.norm_conv4_3)
         self.__select_feature_maps()
         self.__build_classifiers()
         self.__built = True
@@ -246,10 +249,13 @@ class SSDVGG:
             mod_w = np.zeros((3, 3, 512, 1024))
             mod_b = np.zeros(1024)
 
+            ## VGG의 FC6 out channels 개수는 4096이었다..
             for i in range(1024):
                 mod_b[i] = orig_b[4*i]
                 for h in range(3):
                     for w in range(3):
+                        ## out channels의 수를 1024로 만들기 위해 4*i
+                        ## in channels의 수는 512 그대로 이므로 :
                         mod_w[h, w, :, i] = orig_w[3*h, 3*w, :, 4*i]
 
             #-------------------------------------------------------------------
@@ -277,6 +283,8 @@ class SSDVGG:
             for i in range(1024):
                 mod_b[i] = orig_b[4*i]
                 for j in range(1024):
+                    ## VGG FC7의 in, out channels의 개수가 각각 4096이므로 각각 1024로
+                    ## 만들기 위해 4*j, 4*i
                     mod_w[:, :, j, i] = orig_w[:, :, 4*j, 4*i]
 
             #-------------------------------------------------------------------
@@ -356,24 +364,24 @@ class SSDVGG:
             for i in range(len(self.__maps)):
                 fmap     = self.__maps[i]
                 map_size = self.preset.map_sizes[i]
-                for j in range(5):
+                num_ratio = self.num_ratios[i]
+                for j in range(num_ratio):
                     name    = 'classifier{}_{}'.format(i, j)
-                    clsfier, l2 = classifier(fmap, self.num_vars, map_size, name)
-                    self.__classifiers.append(self.__with_loss(clsfier, l2))
-                if i < len(self.__maps)-1:
-                    name    = 'classifier{}_{}'.format(i, 5)
                     clsfier, l2 = classifier(fmap, self.num_vars, map_size, name)
                     self.__classifiers.append(self.__with_loss(clsfier, l2))
 
         with tf.variable_scope('output'):
             output      = tf.concat(self.__classifiers, axis=1, name='output')
             self.logits = output[:,:,:self.num_classes]
+            print(output)
+            print(self.logits)
 
         with tf.variable_scope('result'):
             self.classifier = tf.nn.softmax(self.logits)
             self.locator    = output[:,:,self.num_classes:]
             self.result     = tf.concat([self.classifier, self.locator],
                                         axis=-1, name='result')
+            print(self.result)
 
     #---------------------------------------------------------------------------
     def build_optimizer(self, learning_rate=0.001, weight_decay=0.0005,
@@ -421,6 +429,9 @@ class SSDVGG:
             positives_num_safe = tf.where(tf.equal(positives_num, 0),
                                           tf.ones([batch_size])*10e-15,
                                           tf.to_float(positives_num))
+            print("negatives_num:", negatives_num)
+            print("positives_num:", positives_num)
+            print("positives_num_safe:", positives_num_safe)
 
         #-----------------------------------------------------------------------
         # Compute masks
@@ -461,11 +472,11 @@ class SSDVGG:
             # Negatives - the loss of positive anchors is zeroed out
             # Shape: (batch_size, num_anchors)
             negatives = tf.where(negatives_mask, ce, tf.zeros_like(ce))
-
+            print(negatives)
             # Top negatives - sorted confience loss with the highest one first
             # Shape: (batch_size, num_anchors)
             negatives_top = tf.nn.top_k(negatives, self.preset.num_anchors)[0]
-
+            print(negatives_top)
             #-------------------------------------------------------------------
             # Fugure out what the number of negatives we want to keep is
             #-------------------------------------------------------------------
@@ -588,6 +599,7 @@ class SSDVGG:
         #-----------------------------------------------------------------------
         with tf.variable_scope('optimizer'):
             optimizer = tf.train.AdamOptimizer(learning_rate, epsilon=epsilon)
+            # optimizer = tf.train.MomentumOptimizer(learning_rate, momentum=0.9)
             optimizer = optimizer.minimize(self.loss, global_step=global_step,
                                            name='optimizer')
 
@@ -622,10 +634,9 @@ class SSDVGG:
             self.new_scopes += ['conv12_1', 'conv12_2']
 
         for i in range(self.preset.num_maps):
-            for j in range(5):
+            num_ratio = self.num_ratios[i]
+            for j in range(num_ratio):
                 self.new_scopes.append('classifiers/classifier{}_{}'.format(i, j))
-            if i < self.preset.num_maps-1:
-                self.new_scopes.append('classifiers/classifier{}_{}'.format(i, 5))
 
     #---------------------------------------------------------------------------
     def build_summaries(self, restore):
