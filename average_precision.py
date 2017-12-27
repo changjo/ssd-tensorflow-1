@@ -95,16 +95,21 @@ class APCalculator:
         for sample_id, boxes in enumerate(self.gt_boxes):
             boxes_by_class = defaultdict(list)
             for box in boxes:
-                counts[box.label] += 1
+                if box.difficult == 0:
+                    counts[box.label] += 1
                 boxes_by_class[box.label].append(box)
 
             for k, v in boxes_by_class.items():
                 arr = np.zeros((len(v), 4))
                 match = np.zeros((len(v)), dtype=np.bool)
+                diff = np.zeros((len(v)), dtype=np.int)
                 for i, box in enumerate(v):
                     arr[i] = np.array(prop2abs(box.center, box.size, IMG_SIZE))
-                gt_map[k][sample_id] = (arr, match)
-
+                    diff[i] = box.difficult
+                gt_map[k][sample_id] = (arr, match, diff)
+                ##gt_map[label][one image id] =
+                ##            (arr of coordinates of boxes, matching, difficult)
+        print("counts: ", counts)
         #-----------------------------------------------------------------------
         # Compare predictions to ground truth
         #-----------------------------------------------------------------------
@@ -130,6 +135,7 @@ class APCalculator:
             for i in range(params.shape[0]):
                 sample_id = sample_ids[i]
                 box = params[i]
+                ##box: one box..
 
                 #---------------------------------------------------------------
                 # The image this detection comes from contains no objects of
@@ -144,6 +150,7 @@ class APCalculator:
                 #---------------------------------------------------------------
                 gt = gt_map[k][sample_id][0]
                 matched = gt_map[k][sample_id][1]
+                difficult = gt_map[k][sample_id][2]
 
                 iou = jaccard_overlap(box, gt)
                 max_idx = np.argmax(iou)
@@ -155,12 +162,14 @@ class APCalculator:
                 #---------------------------------------------------------------
                 # Check if the max overlap ground truth box is already matched
                 #---------------------------------------------------------------
-                if matched[max_idx]:
-                    fps[i] = 1
-                    continue
+                
+                if difficult[max_idx] != 1:
+                    if matched[max_idx]:
+                        fps[i] = 1
+                        continue
 
-                tps[i] = 1
-                matched[max_idx] = True
+                    tps[i] = 1
+                    matched[max_idx] = True
 
             #-------------------------------------------------------------------
             # Compute the precision, recall
