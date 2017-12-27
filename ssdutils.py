@@ -34,7 +34,7 @@ SSDPreset = namedtuple('SSDPreset', ['name', 'image_size', 'num_maps',
                                      'scale_max'])
 
 SSD_PRESETS = {
-    'vgg300': SSDPreset(name        = 'vgg300',
+    'vgg300_11639': SSDPreset(name        = 'vgg300_11639',
                         image_size  = Size(300, 300),
                         num_maps    = 6,
                         map_sizes   = [Size(38, 38),
@@ -46,6 +46,20 @@ SSD_PRESETS = {
                         num_anchors = 11639,
                         scale_min   = 0.1,
                         scale_max   = 0.95),
+
+    'vgg300': SSDPreset(name        = 'vgg300',
+                        image_size  = Size(300, 300),
+                        num_maps    = 6,
+                        map_sizes   = [Size(38, 38),
+                                       Size(19, 19),
+                                       Size(10, 10),
+                                       Size( 5,  5),
+                                       Size( 3,  3),
+                                       Size( 1,  1)],
+                        num_anchors = 8732,
+                        scale_min   = 0.2,
+                        scale_max   = 0.9),
+
     'vgg512': SSDPreset(name        = 'vgg512',
                         image_size = Size(512, 512),
                         num_maps    = 7,
@@ -60,6 +74,8 @@ SSD_PRESETS = {
                         scale_min   = 0.07,
                         scale_max   = 0.95),
 }
+
+VARIANCE = [0.1, 0.2]
 
 #-------------------------------------------------------------------------------
 # Default box parameters both in terms proportional to image dimensions
@@ -80,35 +96,45 @@ def get_anchors_for_preset(preset):
     #---------------------------------------------------------------------------
     # Compute scales for each feature map
     #---------------------------------------------------------------------------
-    scales = []
+    scales = [0.1]
     scale_diff = preset.scale_max - preset.scale_min
     for k in range(1, preset.num_maps+1):
-        scale = preset.scale_min + scale_diff/(preset.num_maps-1)*(k-1)
+        scale = preset.scale_min + scale_diff/(preset.num_maps-2)*(k-1)
         scales.append(scale)
-
     #---------------------------------------------------------------------------
     # Compute the width and heights of the anchor boxes for every scale
     #---------------------------------------------------------------------------
-    aspect_ratios = [1, 2, 3, 0.5, 1/3]
-    aspect_ratios = list(map(lambda x: sqrt(x), aspect_ratios))
+    # aspect_ratios = [1, 2, 3, 0.5, 1/3]
+    # aspect_ratios = list(map(lambda x: sqrt(x), aspect_ratios))
+
+    aspect_ratioss = [[1, 2, 0.5],
+                      [1, 2, 3, 0.5, 1 / 3],
+                      [1, 2, 3, 0.5, 1 / 3],
+                      [1, 2, 3, 0.5, 1 / 3],
+                      [1, 2, 0.5],
+                      [1, 2, 0.5]]
+
+    for i in range(len(aspect_ratioss)):
+        aspect_ratios = list(map(lambda x: sqrt(x), aspect_ratioss[i]))
+        aspect_ratioss[i] = aspect_ratios
 
     box_sizes = {}
-    for i in range(len(scales)):
+    for i in range(len(scales) - 1):
+        aspect_ratios = aspect_ratioss[i]
         s = scales[i]
         box_sizes[s] = []
         for ratio in aspect_ratios:
             w = s * ratio
             h = s / ratio
             box_sizes[s].append((w, h))
-        if i < len(scales)-1:
-            s_prime = sqrt(scales[i]*scales[i+1])
-            box_sizes[s].append((s_prime, s_prime))
-
+        # if i < len(scales)-1:
+        s_prime = sqrt(scales[i]*scales[i+1])
+        box_sizes[s].append((s_prime, s_prime))
     #---------------------------------------------------------------------------
     # Compute the actual boxes for every scale and feature map
     #---------------------------------------------------------------------------
     anchors = []
-    for k in range(len(scales)):
+    for k in range(len(scales) - 1):
         s  = scales[k]
         fk = preset.map_sizes[k][0]
         for size in box_sizes[s]:
@@ -166,9 +192,10 @@ def compute_overlap(box_arr, anchors_arr, threshold):
     best = None
     good = []
 
-    if iou[best_idx] > threshold:
-        best = Score(best_idx, iou[best_idx])
-
+    ## Why is this condition necessary??
+    # if iou[best_idx] > threshold:
+    #     best = Score(best_idx, iou[best_idx])
+    best = Score(best_idx, iou[best_idx])
     for idx in good_idxs:
         good.append(Score(idx, iou[idx]))
 
@@ -177,20 +204,28 @@ def compute_overlap(box_arr, anchors_arr, threshold):
 #-------------------------------------------------------------------------------
 def compute_location(box, anchor):
     arr = np.zeros((4))
-    arr[0] = (box.center.x-anchor.center.x)/anchor.size.w*10
-    arr[1] = (box.center.y-anchor.center.y)/anchor.size.h*10
-    arr[2] = log(box.size.w/anchor.size.w)*5
-    arr[3] = log(box.size.h/anchor.size.h)*5
+    # arr[0] = (box.center.x-anchor.center.x)/anchor.size.w*10
+    # arr[1] = (box.center.y-anchor.center.y)/anchor.size.h*10
+    # arr[2] = log(box.size.w/anchor.size.w)*5
+    # arr[3] = log(box.size.h/anchor.size.h)*5
+    arr[0] = (box.center.x - anchor.center.x) / anchor.size.w / VARIANCE[0]
+    arr[1] = (box.center.y - anchor.center.y) / anchor.size.h / VARIANCE[0]
+    arr[2] = log(box.size.w / anchor.size.w) / VARIANCE[1]
+    arr[3] = log(box.size.h / anchor.size.h) / VARIANCE[1]
     return arr
 
 #-------------------------------------------------------------------------------
 def decode_location(box, anchor):
     box[box > 100] = 100 # only happens early training
 
-    x = box[0]/10 * anchor.size.w + anchor.center.x
-    y = box[1]/10 * anchor.size.h + anchor.center.y
-    w = exp(box[2]/5) * anchor.size.w
-    h = exp(box[3]/5) * anchor.size.h
+    # x = box[0]/10 * anchor.size.w + anchor.center.x
+    # y = box[1]/10 * anchor.size.h + anchor.center.y
+    # w = exp(box[2]/5) * anchor.size.w
+    # h = exp(box[3]/5) * anchor.size.h
+    x = box[0] * VARIANCE[0] * anchor.size.w + anchor.center.x
+    y = box[1] * VARIANCE[0] * anchor.size.h + anchor.center.y
+    w = exp(box[2] * VARIANCE[1]) * anchor.size.w
+    h = exp(box[3] * VARIANCE[1]) * anchor.size.h
     return Point(x, y), Size(w, h)
 
 #-------------------------------------------------------------------------------
