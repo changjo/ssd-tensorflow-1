@@ -264,7 +264,8 @@ def main():
     #---------------------------------------------------------------------------
     if compute_stats:
         aps = ap_calc.compute_aps()
-        for k, v in aps.items():
+        aps_sorted = sorted(aps.items(), key=lambda x: x[0])
+        for k, v in aps_sorted:
             print('[i] AP [{0}]: {1:.3f}'.format(k, v))
         print('[i] mAP: {0:.3f}'.format(APs2mAP(aps)))
 
